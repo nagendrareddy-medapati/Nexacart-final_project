@@ -1,0 +1,41 @@
+{% extends "admin_base.html" %}
+{% block title %}Products — Nexacart Admin{% endblock %}
+{% block page_title %}Products ({{ total }}){% endblock %}
+{% block content %}
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.2rem">
+  <form class="search-bar" method="get" style="margin:0;flex:1;max-width:400px">
+    <input name="q" value="{{ q }}" placeholder="Search products…">
+    <button type="submit" class="btn btn-primary btn-sm">Search</button>
+    {% if q %}<a href="{{ url_for('admin_products') }}" class="btn btn-outline btn-sm">Clear</a>{% endif %}
+  </form>
+  <a href="{{ url_for('admin_add_product') }}" class="btn btn-primary">➕ Add Product</a>
+</div>
+<div class="card">
+  <table>
+    <tr><th>Image</th><th>Name</th><th>Category</th><th>Price</th><th>Rating</th><th>Stock</th><th>Actions</th></tr>
+    {% for p in products %}
+    <tr>
+      <td><img src="/static/assets/{{ get_img(p.name, p.category) }}" class="product-thumb" alt=""></td>
+      <td><strong>{{ p.name[:40] }}</strong>{% if p.badge %}<br><span style="font-size:.65rem;color:#6b7280">{{ p.badge }}</span>{% endif %}</td>
+      <td style="font-size:.78rem;color:#6b7280">{{ p.category }}</td>
+      <td>₹{{ "{:,.0f}".format(p.price) }}</td>
+      <td>⭐ {{ p.rating }}</td>
+      <td>{{ p.stock or 100 }}</td>
+      <td>
+        <a href="{{ url_for('admin_edit_product', pid=p.id) }}" class="btn btn-outline btn-sm">Edit</a>
+        <form method="post" action="{{ url_for('admin_delete_product', pid=p.id) }}" style="display:inline" onsubmit="return confirm('Delete this product?')">
+          <button class="btn btn-danger btn-sm">Del</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% if total_pages > 1 %}
+  <div class="pagination">
+    {% for i in range(1, total_pages+1) %}
+    <a href="{{ url_for('admin_products', page=i, q=q) }}" class="page-btn {% if i==page %}active{% endif %}">{{ i }}</a>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

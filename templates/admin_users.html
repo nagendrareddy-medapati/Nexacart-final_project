@@ -1,0 +1,112 @@
+{% extends "admin_base.html" %}
+{% block title %}Users — Admin{% endblock %}
+{% block page_title %}Users ({{ users|length }}){% endblock %}
+{% block content %}
+
+<!-- Pending Admin Requests -->
+{% if pending_requests %}
+<div class="card" style="margin-bottom:1.4rem;border-left:4px solid #f59e0b">
+  <div class="card-hdr" style="background:#fffbeb">
+    <h3 style="color:#92400e">⏳ Pending Admin Access Requests ({{ pending_requests|length }})</h3>
+  </div>
+  <table>
+    <tr>
+      <th>Username</th><th>Email</th><th>Phone</th>
+      <th>Reason</th><th>Submitted</th><th>Action</th>
+    </tr>
+    {% for r in pending_requests %}
+    <tr style="background:#fffbeb">
+      <td><strong>{{ r['username'] }}</strong></td>
+      <td>{{ r['email'] or '—' }}</td>
+      <td>{{ r['phone'] or '—' }}</td>
+      <td style="max-width:240px;font-size:.78rem;color:#4b5563">{{ r['reason'][:120] }}{% if r['reason']|length > 120 %}…{% endif %}</td>
+      <td style="font-size:.75rem;color:#6b7280;white-space:nowrap">{{ r['created_at'][:16] }}</td>
+      <td style="white-space:nowrap">
+        <div style="display:flex;gap:.4rem">
+          <form method="post" action="{{ url_for('admin_approve_request', req_id=r['id']) }}" style="display:inline">
+            <button class="btn btn-primary btn-sm" title="Approve — share invite code manually">
+              ✅ Approve
+            </button>
+          </form>
+          <form method="post" action="{{ url_for('admin_reject_request', req_id=r['id']) }}" style="display:inline">
+            <button class="btn btn-danger btn-sm">✗ Reject</button>
+          </form>
+        </div>
+        <div style="font-size:.65rem;color:#9ca3af;margin-top:.3rem">
+          Invite code: <code style="background:#f3f4f6;padding:.1rem .35rem;border-radius:3px">{{ admin_invite_code }}</code>
+        </div>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  <div style="padding:.8rem 1.2rem;font-size:.75rem;color:#78716c;background:#fffbeb;border-top:1px solid #fde68a">
+    💡 After approving, share the invite code shown above with the user. They use it on the Register page to create their admin account.
+  </div>
+</div>
+{% endif %}
+
+<!-- Users Table -->
+<div class="card">
+  <div class="card-hdr" style="display:flex;align-items:center;justify-content:space-between">
+    <h3>All Registered Users</h3>
+    <div style="font-size:.72rem;color:#6b7280">
+      Customers: <strong>{{ users|selectattr('role','equalto','customer')|list|length }}</strong>
+      &nbsp;·&nbsp;
+      Admins: <strong>{{ users|selectattr('role','equalto','admin')|list|length }}</strong>
+    </div>
+  </div>
+  <div style="overflow-x:auto">
+  <table>
+    <tr>
+      <th>#</th>
+      <th>Username</th>
+      <th>Account Type</th>
+      <th>Email</th>
+      <th>Phone</th>
+      <th>City</th>
+      <th>Orders</th>
+      <th>Total Spent</th>
+      <th>Joined</th>
+    </tr>
+    {% for u in users %}
+    <tr>
+      <td style="color:#6b7280;font-size:.78rem">{{ u['id'] }}</td>
+      <td>
+        <strong>{{ u['username'] }}</strong>
+        {% if u['is_verified'] %}
+        <span title="Verified" style="color:#22c55e;font-size:.8rem">✓</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if u['role'] == 'admin' %}
+        <span style="display:inline-flex;align-items:center;gap:.3rem;background:#fef3c7;color:#92400e;font-size:.68rem;font-weight:700;padding:.2rem .55rem;border-radius:20px;letter-spacing:.06em">
+          ⚙️ ADMIN
+        </span>
+        {% else %}
+        <span style="display:inline-flex;align-items:center;gap:.3rem;background:#f0fdf4;color:#15803d;font-size:.68rem;font-weight:700;padding:.2rem .55rem;border-radius:20px;letter-spacing:.06em">
+          🛍️ BUYER
+        </span>
+        {% endif %}
+      </td>
+      <td style="font-size:.82rem">{{ u['email'] or '—' }}</td>
+      <td style="font-size:.82rem">{{ u['phone'] or '—' }}</td>
+      <td style="font-size:.82rem">{{ u['city'] or '—' }}</td>
+      <td style="text-align:center">
+        <strong>{{ u['order_count'] }}</strong>
+      </td>
+      <td>
+        <strong style="color:{% if u['total_spent'] > 10000 %}#15803d{% else %}inherit{% endif %}">
+          ₹{{ "{:,.0f}".format(u['total_spent']) }}
+        </strong>
+      </td>
+      <td style="font-size:.75rem;color:#6b7280;white-space:nowrap">
+        {{ u['joined'] or '—' }}
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="9" style="text-align:center;padding:2.5rem;color:#6b7280">No users yet</td></tr>
+    {% endfor %}
+  </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,107 @@
+{% extends "admin_base.html" %}
+{% block title %}Add Product — Admin{% endblock %}
+{% block page_title %}Add New Product{% endblock %}
+{% block content %}
+{% if msg %}<div class="msg-ok" style="margin-bottom:1rem">{{ msg }}</div>{% endif %}
+
+<div class="card" style="max-width:760px">
+  <div class="card-hdr"><h3>New Product Details</h3></div>
+  <div style="padding:1.4rem">
+    <form method="post" enctype="multipart/form-data">
+
+      <div class="form-row">
+        <div class="form-group"><label>Product Name *</label><input name="name" placeholder="e.g. Samsung Galaxy S25" required></div>
+        <div class="form-group"><label>Price (₹) *</label><input type="number" name="price" placeholder="49999" min="0" step="0.01" required></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Category *</label>
+          <select name="category" required>{% for c in categories %}<option>{{ c }}</option>{% endfor %}</select>
+        </div>
+        <div class="form-group"><label>Badge</label>
+          <select name="badge">
+            <option value="">None</option>
+            {% for b in ["Best Seller","New","Budget Pick","Premium","Gaming","Sports","Gift","Traditional"] %}
+            <option>{{ b }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Icon (emoji)</label><input name="icon" value="📦" placeholder="📦"></div>
+        <div class="form-group"><label>Initial Rating</label><input type="number" name="rating" value="4.0" min="0" max="5" step="0.1"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Stock</label><input type="number" name="stock" value="100" min="0"></div>
+        <div class="form-group"><label>Trending?</label>
+          <select name="trending"><option value="0">No</option><option value="1">Yes</option></select>
+        </div>
+      </div>
+
+      <!-- ── Image Upload Section ── -->
+      <div style="margin-top:1.5rem;padding-top:1.2rem;border-top:1px solid #e5e7eb">
+        <label style="font-size:.75rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#374151;display:block;margin-bottom:.9rem">
+          📷 Product Images (up to 4)
+        </label>
+        <p style="font-size:.75rem;color:#6b7280;margin-bottom:1rem">
+          Accepted: JPG, PNG, WEBP · Recommended: 800×800 px · Max 2 MB each<br>
+          Image 1 is shown as the main image on product cards.
+        </p>
+        <div class="img-upload-grid">
+          {% for slot in range(1, 7) %}
+          <div class="img-upload-slot">
+            <div class="img-slot-preview" id="preview{{ slot }}">
+              <div class="img-slot-empty">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                <span>Image {{ slot }}</span>
+              </div>
+            </div>
+            <label class="img-upload-btn" for="addfile{{ slot }}">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              Choose Image {{ slot }}
+            </label>
+            <input type="file" id="addfile{{ slot }}" name="image_{{ slot }}"
+                   accept=".jpg,.jpeg,.png,.webp,.gif"
+                   onchange="previewImg(this,'preview{{ slot }}')"
+                   style="display:none">
+            <div class="img-slot-num">{{ slot }}{% if slot == 1 %} — Main{% endif %}</div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div style="margin-top:1.5rem;display:flex;gap:.6rem">
+        <button type="submit" class="btn btn-primary">➕ Add Product</button>
+        <a href="{{ url_for('admin_products') }}" class="btn btn-outline">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<style>
+.img-upload-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:.75rem}
+.img-upload-slot{display:flex;flex-direction:column;gap:.5rem;align-items:center}
+.img-slot-preview{width:100%;aspect-ratio:1;border:2px dashed #d1d5db;border-radius:8px;overflow:hidden;background:#f9fafb;display:flex;align-items:center;justify-content:center}
+.img-slot-empty{display:flex;flex-direction:column;align-items:center;gap:.4rem;color:#9ca3af;font-size:.65rem}
+.img-upload-btn{display:flex;align-items:center;justify-content:center;gap:.35rem;background:#1a3010;color:#fff;border-radius:5px;font-size:.68rem;font-weight:500;padding:.42rem .5rem;cursor:pointer;width:100%;text-align:center;transition:background .18s;font-family:var(--body,"system-ui")}
+.img-upload-btn:hover{background:#2d5016}
+.img-slot-num{font-size:.62rem;color:#6b7280;font-weight:600}
+@media(max-width:900px){.img-upload-grid{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:560px){.img-upload-grid{grid-template-columns:repeat(2,1fr)}}
+</style>
+
+<script>
+function previewImg(input, previewId) {
+  if (!input.files || !input.files[0]) return;
+  const file = input.files[0];
+  if (file.size > 2 * 1024 * 1024) {
+    alert('File too large. Max 2 MB per image.'); input.value=''; return;
+  }
+  const reader = new FileReader();
+  reader.onload = e => {
+    const wrap = document.getElementById(previewId);
+    wrap.innerHTML = `<img src="${e.target.result}" style="width:100%;height:100%;object-fit:cover;border-radius:6px">`;
+    wrap.style.border = '2px solid #2d5016';
+  };
+  reader.readAsDataURL(file);
+}
+</script>
+{% endblock %}
