@@ -2215,9 +2215,15 @@ def admin_reject_request(req_id):
     return redirect(url_for("admin_users"))
 
 
+# Initialize database on module load (required for Vercel serverless and gunicorn)
+with app.app_context():
+    try:
+        init_db()
+        insert_sample_products()
+    except Exception as e:
+        print(f"DB initialization error: {e}")
+
 if __name__ == "__main__":
-    init_db()
-    insert_sample_products()
     port = int(os.environ.get("PORT", 5000))
     debug = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
     app.run(host="0.0.0.0", port=port, debug=debug)
