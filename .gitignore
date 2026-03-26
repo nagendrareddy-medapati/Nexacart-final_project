@@ -15,10 +15,6 @@ env/
 .env
 *.env
 
-# Database — contains user data, never commit
-*.db
-*.sqlite
-*.sqlite3
 
 # IDE
 .vscode/

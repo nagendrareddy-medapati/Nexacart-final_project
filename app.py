@@ -45,7 +45,7 @@ def health_check():
 
 
 DATABASE = "ecommerce.db"
-ADMIN_SECRET = "nexacart_admin_2025"   # change before going live
+ADMIN_SECRET = "nexacart_admin_2026" 
 
 STRIPE_PUBLISHABLE_KEY = "pk_test_YOUR_PUBLISHABLE_KEY"
 STRIPE_SECRET_KEY      = "sk_test_YOUR_SECRET_KEY"
@@ -913,7 +913,7 @@ def login():
     return render_template("login.html", error=None)
 
 # Admin invite code — set via ADMIN_INVITE_CODE env var
-ADMIN_INVITE_CODE = os.environ.get("ADMIN_INVITE_CODE", "NEXACART_ADMIN_2025")
+ADMIN_INVITE_CODE = os.environ.get("ADMIN_INVITE_CODE", "NEXACART_ADMIN_2026")
 
 @app.route("/register", methods=["GET","POST"])
 def register():
