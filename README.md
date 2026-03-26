@@ -23,7 +23,7 @@ A full-featured e-commerce platform built with Python Flask.
 
 ### 1. Clone the repo
 ```bash
-git clone https://github.com/YOUR_USERNAME/nexacart.git
+git clone https://github.com/YOUR_USERNAME/nexacart_e-commerce.git
 cd nexacart
 ```
 
