@@ -1,7 +1,92 @@
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash
-import sqlite3, datetime, random, hashlib, os
+import psycopg2, datetime, random, hashlib, os
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
+
+
+# ─── PostgreSQL / SQLite Compatibility Layer ──────────────────────────────────
+class CompatRow:
+    """Row wrapper supporting both row["column"] and row[0] access."""
+    def __init__(self, row, description):
+        self._row = row
+        self._keys = [d[0] for d in description]
+        self._dict = {k: v for k, v in zip(self._keys, row)}
+
+    def __getitem__(self, key):
+        if isinstance(key, (int, slice)):
+            return self._row[key]
+        return self._dict[key]
+
+    def __iter__(self):
+        return iter(self._row)
+
+    def __len__(self):
+        return len(self._row)
+
+    def keys(self):
+        return self._keys
+
+    def get(self, key, default=None):
+        return self._dict.get(key, default)
+
+    def __contains__(self, key):
+        return key in self._dict
+
+
+class CompatCursor:
+    """Cursor wrapper that converts ? to %s and wraps rows as CompatRow."""
+    def __init__(self, cursor):
+        self._cur = cursor
+
+    def execute(self, sql, params=()):
+        sql = sql.replace('?', '%s')
+        self._cur.execute(sql, params)
+        return self
+
+    def executemany(self, sql, params_list):
+        sql = sql.replace('?', '%s')
+        self._cur.executemany(sql, params_list)
+        return self
+
+    def fetchone(self):
+        if self._cur.description is None:
+            return None
+        row = self._cur.fetchone()
+        if row is None:
+            return None
+        return CompatRow(row, self._cur.description)
+
+    def fetchall(self):
+        if self._cur.description is None:
+            return []
+        rows = self._cur.fetchall()
+        return [CompatRow(row, self._cur.description) for row in rows]
+
+
+class CompatConn:
+    """Connection wrapper providing sqlite3-like API over psycopg2."""
+    def __init__(self, conn):
+        self._conn = conn
+
+    def execute(self, sql, params=()):
+        cur = CompatCursor(self._conn.cursor())
+        cur.execute(sql, params)
+        return cur
+
+    def executemany(self, sql, params_list):
+        cur = CompatCursor(self._conn.cursor())
+        cur.executemany(sql, params_list)
+        return cur
+
+    def commit(self):
+        self._conn.commit()
+
+    def close(self):
+        self._conn.close()
+
+    def rollback(self):
+        self._conn.rollback()
+# ─────────────────────────────────────────────────────────────────────────────
 
 app = Flask(__name__)
 app.secret_key = "nexacart_secure_key_2025"
@@ -44,8 +129,7 @@ def health_check():
         return jsonify({"status":"error","detail":str(e)}), 500
 
 
-DATABASE = "ecommerce.db"
-ADMIN_SECRET = "nexacart_admin_2026" 
+ADMIN_SECRET = "nexacart_admin_2026"
 
 STRIPE_PUBLISHABLE_KEY = "pk_test_YOUR_PUBLISHABLE_KEY"
 STRIPE_SECRET_KEY      = "sk_test_YOUR_SECRET_KEY"
@@ -162,124 +246,117 @@ def admin_required(f):
 # DATABASE
 # ═══════════════════════════════════════════════════════════
 def get_db():
-    conn = sqlite3.connect(DATABASE)
-    conn.row_factory = sqlite3.Row
-    return conn
+    url = os.environ.get("DATABASE_URL", "")
+    if not url:
+        raise RuntimeError("DATABASE_URL environment variable is not set.")
+    conn = psycopg2.connect(url)
+    return CompatConn(conn)
 
 def init_db():
     conn = get_db()
-    conn.executescript("""
-    CREATE TABLE IF NOT EXISTS users(
-        id           INTEGER PRIMARY KEY AUTOINCREMENT,
-        username     TEXT UNIQUE,
-        password     TEXT,
-        email        TEXT,
-        phone        TEXT,
-        country_code TEXT DEFAULT '+91',
-        address      TEXT,
-        city         TEXT,
-        pincode      TEXT,
-        is_verified  INTEGER DEFAULT 0,
-        role         TEXT DEFAULT 'customer',
-        joined       TEXT DEFAULT (datetime('now','localtime'))
-    );
-    CREATE TABLE IF NOT EXISTS password_resets(
-        id         INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id    INTEGER,
-        token      TEXT UNIQUE,
-        expires_at TEXT,
-        used       INTEGER DEFAULT 0,
-        FOREIGN KEY(user_id) REFERENCES users(id)
-    );
-    CREATE TABLE IF NOT EXISTS products(
-        id       INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT, price REAL, category TEXT, icon TEXT, badge TEXT,
-        rating REAL DEFAULT 4.0, reviews INTEGER DEFAULT 0,
-        trending INTEGER DEFAULT 0, image TEXT,
-        stock INTEGER DEFAULT 100,
-        variants TEXT DEFAULT ''
-    );
-    CREATE TABLE IF NOT EXISTS cart(
-        id      INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER, product_id INTEGER,
-        quantity INTEGER DEFAULT 1, variant TEXT DEFAULT '',
-        added_at TEXT DEFAULT (datetime('now')),
-        FOREIGN KEY(user_id) REFERENCES users(id),
-        FOREIGN KEY(product_id) REFERENCES products(id)
-    );
-    CREATE TABLE IF NOT EXISTS wishlist(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER, product_id INTEGER,
-        added_at TEXT DEFAULT (datetime('now')),
-        UNIQUE(user_id, product_id),
-        FOREIGN KEY(user_id) REFERENCES users(id)
-    );
-    CREATE TABLE IF NOT EXISTS orders(
-        id             INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id        INTEGER, order_ref TEXT UNIQUE,
-        total REAL, subtotal REAL, discount_amt REAL, gst_amt REAL,
-        promo_code TEXT, status TEXT DEFAULT 'Confirmed',
-        address TEXT, city TEXT, pincode TEXT,
-        payment_method TEXT DEFAULT 'Stripe/Card',
-        payment_txn_id TEXT DEFAULT '',
-        created_at     TEXT DEFAULT (datetime('now')),
-        FOREIGN KEY(user_id) REFERENCES users(id)
-    );
-    CREATE TABLE IF NOT EXISTS order_items(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        order_id INTEGER, product_id INTEGER,
-        name TEXT, price REAL, quantity INTEGER DEFAULT 1, variant TEXT,
-        FOREIGN KEY(order_id) REFERENCES orders(id)
-    );
-    CREATE TABLE IF NOT EXISTS reviews(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        product_id INTEGER, user_id INTEGER,
-        rating INTEGER CHECK(rating BETWEEN 1 AND 5),
-        title TEXT, body TEXT,
-        created_at TEXT DEFAULT (datetime('now')),
-        UNIQUE(product_id, user_id),
-        FOREIGN KEY(product_id) REFERENCES products(id),
-        FOREIGN KEY(user_id) REFERENCES users(id)
-    );
-    CREATE TABLE IF NOT EXISTS recently_viewed(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER, product_id INTEGER,
-        viewed_at TEXT DEFAULT (datetime('now')),
-        UNIQUE(user_id, product_id),
-        FOREIGN KEY(user_id) REFERENCES users(id)
-    );
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS users(
+            id           SERIAL PRIMARY KEY,
+            username     TEXT UNIQUE,
+            password     TEXT,
+            email        TEXT,
+            phone        TEXT,
+            country_code TEXT DEFAULT '+91',
+            address      TEXT,
+            city         TEXT,
+            pincode      TEXT,
+            is_verified  INTEGER DEFAULT 0,
+            role         TEXT DEFAULT 'customer',
+            joined       TIMESTAMP DEFAULT NOW()
+        )
     """)
-    # Migrations for existing DBs
-    for col, defval in [("image","'placeholder.svg'"),("stock","100"),("variants","''")]:
-        cols = {r[1] for r in conn.execute("PRAGMA table_info(products)").fetchall()}
-        if col not in cols:
-            conn.execute(f"ALTER TABLE products ADD COLUMN {col} TEXT DEFAULT {defval}")
-    user_cols = {r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
-    for col, defval in [("email","NULL"),("phone","NULL"),("country_code","'+91'"),
-                        ("address","NULL"),("city","NULL"),("pincode","NULL"),
-                        ("joined","(date('now'))"),("is_verified","0")]:
-        if col not in user_cols:
-            conn.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT DEFAULT {defval}")
-    # Orders table migration for payment columns
-    ord_cols = {r[1] for r in conn.execute("PRAGMA table_info(orders)").fetchall()}
-    for col, defval in [("payment_method","'Stripe/Card'"),("payment_txn_id","''")]:
-        if col not in ord_cols:
-            conn.execute(f"ALTER TABLE orders ADD COLUMN {col} TEXT DEFAULT {defval}")
-
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS password_resets("
-        "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-        "user_id INTEGER, token TEXT UNIQUE,"
-        "expires_at TEXT, used INTEGER DEFAULT 0,"
-        "FOREIGN KEY(user_id) REFERENCES users(id))"
-    )
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS admin_requests("
-        "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-        "username TEXT, email TEXT, phone TEXT,"
-        "reason TEXT, status TEXT DEFAULT 'pending',"
-        "created_at TEXT DEFAULT (datetime('now')))"
-    )
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS password_resets(
+            id         SERIAL PRIMARY KEY,
+            user_id    INTEGER REFERENCES users(id),
+            token      TEXT UNIQUE,
+            expires_at TEXT,
+            used       INTEGER DEFAULT 0
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS products(
+            id       SERIAL PRIMARY KEY,
+            name     TEXT, price REAL, category TEXT, icon TEXT, badge TEXT,
+            rating   REAL DEFAULT 4.0, reviews INTEGER DEFAULT 0,
+            trending INTEGER DEFAULT 0, image TEXT,
+            stock    INTEGER DEFAULT 100,
+            variants TEXT DEFAULT ''
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS cart(
+            id         SERIAL PRIMARY KEY,
+            user_id    INTEGER REFERENCES users(id),
+            product_id INTEGER,
+            quantity   INTEGER DEFAULT 1,
+            variant    TEXT DEFAULT '',
+            added_at   TIMESTAMP DEFAULT NOW()
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS wishlist(
+            id         SERIAL PRIMARY KEY,
+            user_id    INTEGER REFERENCES users(id),
+            product_id INTEGER,
+            added_at   TIMESTAMP DEFAULT NOW(),
+            UNIQUE(user_id, product_id)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS orders(
+            id             SERIAL PRIMARY KEY,
+            user_id        INTEGER REFERENCES users(id),
+            order_ref      TEXT UNIQUE,
+            total          REAL, subtotal REAL, discount_amt REAL, gst_amt REAL,
+            promo_code     TEXT, status TEXT DEFAULT 'Confirmed',
+            address        TEXT, city TEXT, pincode TEXT,
+            payment_method TEXT DEFAULT 'Stripe/Card',
+            payment_txn_id TEXT DEFAULT '',
+            created_at     TIMESTAMP DEFAULT NOW()
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS order_items(
+            id         SERIAL PRIMARY KEY,
+            order_id   INTEGER REFERENCES orders(id),
+            product_id INTEGER,
+            name       TEXT, price REAL, quantity INTEGER DEFAULT 1, variant TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS reviews(
+            id         SERIAL PRIMARY KEY,
+            product_id INTEGER,
+            user_id    INTEGER REFERENCES users(id),
+            rating     INTEGER CHECK(rating BETWEEN 1 AND 5),
+            title      TEXT, body TEXT,
+            created_at TIMESTAMP DEFAULT NOW(),
+            UNIQUE(product_id, user_id)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS recently_viewed(
+            id         SERIAL PRIMARY KEY,
+            user_id    INTEGER REFERENCES users(id),
+            product_id INTEGER,
+            viewed_at  TIMESTAMP DEFAULT NOW(),
+            UNIQUE(user_id, product_id)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS admin_requests(
+            id         SERIAL PRIMARY KEY,
+            username   TEXT, email TEXT, phone TEXT,
+            reason     TEXT, status TEXT DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT NOW()
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -301,7 +378,8 @@ def calc_totals(subtotal, discount_pct):
 
 def track_recently_viewed(user_id, product_id):
     conn = get_db()
-    conn.execute("INSERT OR REPLACE INTO recently_viewed(user_id,product_id,viewed_at) VALUES(?,?,datetime('now'))",
+    conn.execute("""INSERT INTO recently_viewed(user_id,product_id,viewed_at) VALUES(?,?,NOW())
+                    ON CONFLICT (user_id,product_id) DO UPDATE SET viewed_at=NOW()""",
                  (user_id, product_id))
     # Keep only last 12
     conn.execute("""DELETE FROM recently_viewed WHERE user_id=? AND id NOT IN (
@@ -874,7 +952,7 @@ def insert_sample_products():
 
 
     conn.executemany(
-        "INSERT OR IGNORE INTO products (name,price,category,icon,badge,rating,reviews,trending) VALUES(?,?,?,?,?,?,?,?)",
+        "INSERT INTO products (name,price,category,icon,badge,rating,reviews,trending) VALUES(?,?,?,?,?,?,?,?)",
         products
     )
     conn.commit(); conn.close()
@@ -1091,7 +1169,7 @@ def products():
         except: pass
     if brands_sel:
         ph=",".join("?"*len(brands_sel))
-        where.append(f"SUBSTR(name,1,INSTR(name||' ',' ')-1) IN ({ph})")
+        where.append(f"SUBSTR(name,1,STRPOS(name||' ',' ')-1) IN ({ph})")
         params+=brands_sel
 
     w = "WHERE "+" AND ".join(where) if where else ""
@@ -1106,7 +1184,7 @@ def products():
 
     # Brands for filter sidebar
     brand_rows = conn.execute(
-        f"SELECT DISTINCT SUBSTR(name,1,INSTR(name||' ',' ')-1) as brand FROM products {w} ORDER BY brand", params
+        f"SELECT DISTINCT SUBSTR(name,1,STRPOS(name||' ',' ')-1) as brand FROM products {w} ORDER BY brand", params
     ).fetchall()
     all_brands = [r["brand"] for r in brand_rows]
 
@@ -1151,7 +1229,9 @@ def product_detail(pid):
             rv = int(request.form["rating"])
             ti = request.form.get("review_title","").strip()[:120]
             bd = request.form.get("review_body","").strip()[:1000]
-            conn.execute("INSERT OR REPLACE INTO reviews(product_id,user_id,rating,title,body) VALUES(?,?,?,?,?)",
+            conn.execute("""INSERT INTO reviews(product_id,user_id,rating,title,body) VALUES(?,?,?,?,?)
+                         ON CONFLICT (product_id,user_id) DO UPDATE SET
+                         rating=EXCLUDED.rating,title=EXCLUDED.title,body=EXCLUDED.body,created_at=NOW()""",
                          (pid,uid,rv,ti,bd))
             # Update product aggregate rating
             agg = conn.execute("SELECT AVG(rating) as avg, COUNT(*) as cnt FROM reviews WHERE product_id=?", (pid,)).fetchone()
@@ -1275,7 +1355,7 @@ def toggle_wishlist(pid):
     conn = get_db()
     exists = conn.execute("SELECT id FROM wishlist WHERE user_id=? AND product_id=?",(uid,pid)).fetchone()
     if exists: conn.execute("DELETE FROM wishlist WHERE user_id=? AND product_id=?",(uid,pid))
-    else:      conn.execute("INSERT OR IGNORE INTO wishlist(user_id,product_id) VALUES(?,?)",(uid,pid))
+    else:      conn.execute("INSERT INTO wishlist(user_id,product_id) VALUES(?,?) ON CONFLICT DO NOTHING",(uid,pid))
     conn.commit(); conn.close()
     return redirect(request.referrer or url_for("wishlist"))
 
@@ -1315,10 +1395,9 @@ def payment_success():
     ref = f"NXC-{random.randint(100000,999999)}"
     user = conn.execute("SELECT * FROM users WHERE id=?",(uid,)).fetchone()
     # Save order
-    conn.execute("INSERT INTO orders(user_id,order_ref,total,subtotal,discount_amt,gst_amt,promo_code,address,city,pincode,payment_method) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+    order_id = conn.execute("INSERT INTO orders(user_id,order_ref,total,subtotal,discount_amt,gst_amt,promo_code,address,city,pincode,payment_method) VALUES(?,?,?,?,?,?,?,?,?,?,?) RETURNING id",
         (uid,ref,t["grand_total"],subtotal,t["discount_amt"],t["gst_amt"],applied_code,
-         user["address"] or "",user["city"] or "",user["pincode"] or "","Stripe/Card"))
-    order_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+         user["address"] or "",user["city"] or "",user["pincode"] or "","Stripe/Card")).fetchone()[0]
     for i in items:
         conn.execute("INSERT INTO order_items(order_id,product_id,name,price,quantity,variant) VALUES(?,?,?,?,?,?)",
             (order_id,i["id"],i["name"],i["price"],i["quantity"],i["variant"]))
@@ -1607,14 +1686,13 @@ def admin_add_product():
     new_pid=None
     if request.method=="POST":
         conn=get_db()
-        conn.execute("""INSERT INTO products(name,price,category,icon,badge,rating,reviews,trending,stock)
-            VALUES(?,?,?,?,?,?,0,?,?)""",
+        new_pid = conn.execute("""INSERT INTO products(name,price,category,icon,badge,rating,reviews,trending,stock)
+            VALUES(?,?,?,?,?,?,0,?,?) RETURNING id""",
             (request.form["name"],float(request.form["price"]),request.form["category"],
              request.form.get("icon","📦"),request.form.get("badge","") or None,
              float(request.form.get("rating",4.0)),int(request.form.get("trending",0)),
-             int(request.form.get("stock",100))))
+             int(request.form.get("stock",100)))).fetchone()[0]
         conn.commit()
-        new_pid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         conn.close()
         # Handle image uploads for new product
         img_folder = os.path.join(os.path.dirname(__file__), "static", "product_images", str(new_pid))
@@ -1774,14 +1852,13 @@ def upi_verify():
 
     conn = get_db()
     user = conn.execute("SELECT * FROM users WHERE id=?",(uid,)).fetchone()
-    conn.execute("""INSERT INTO orders
+    order_id = conn.execute("""INSERT INTO orders
         (user_id,order_ref,total,subtotal,discount_amt,gst_amt,promo_code,
          address,city,pincode,payment_method,payment_txn_id,status)
-        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'Confirmed')""",
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'Confirmed') RETURNING id""",
         (uid,ref,t["grand_total"],subtotal,t["discount_amt"],t["gst_amt"],applied_code,
          user["address"] or "",user["city"] or "",user["pincode"] or "",
-         upi_app, upi_txn))
-    order_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+         upi_app, upi_txn)).fetchone()[0]
     for i in items:
         conn.execute("INSERT INTO order_items(order_id,product_id,name,price,quantity,variant) VALUES(?,?,?,?,?,?)",
             (order_id,i["id"],i["name"],i["price"],i["quantity"],i["variant"]))

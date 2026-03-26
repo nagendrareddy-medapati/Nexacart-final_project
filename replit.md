@@ -5,7 +5,7 @@ Nexacart is a full-featured e-commerce web application built with Flask and SQLi
 
 ## Architecture
 - **Backend:** Flask 3.0.3 (Python)
-- **Database:** SQLite (`ecommerce.db`, auto-created on first run)
+- **Database:** PostgreSQL via `psycopg2-binary` (connection via `DATABASE_URL` env var)
 - **Templating:** Jinja2 (28+ HTML templates in `templates/`)
 - **Frontend:** Vanilla CSS + JavaScript (`static/css/`, `static/js/`)
 - **Auth:** Werkzeug password hashing + Flask sessions
