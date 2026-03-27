@@ -89,7 +89,7 @@ class CompatConn:
 # ─────────────────────────────────────────────────────────────────────────────
 
 app = Flask(__name__)
-app.secret_key = "nexacart_secure_key_2025"
+app.secret_key = os.environ.get("SESSION_SECRET", os.urandom(32))
 @app.context_processor
 def inject_globals():
     """Make get_img and other helpers available in ALL templates."""
