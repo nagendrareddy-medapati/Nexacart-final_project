@@ -991,7 +991,7 @@ def login():
     return render_template("login.html", error=None)
 
 # Admin invite code — set via ADMIN_INVITE_CODE env var
-ADMIN_INVITE_CODE = os.environ.get("ADMIN_INVITE_CODE", "NEXACART_ADMIN_2026")
+ADMIN_INVITE_CODE = os.environ.get("ADMIN_INVITE_CODE", "NEXACART_ADMIN_2025")
 
 @app.route("/register", methods=["GET","POST"])
 def register():
