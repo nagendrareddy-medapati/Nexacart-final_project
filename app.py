@@ -967,10 +967,13 @@ def insert_sample_products():
     ]
 
 
-    conn.executemany(
-        "INSERT INTO products (name,price,category,icon,badge,rating,reviews,trending) VALUES(?,?,?,?,?,?,?,?)",
-        products
-    )
+    for p in products:
+        existing = conn.execute("SELECT id FROM products WHERE name=? AND category=?", (p[0], p[2])).fetchone()
+        if not existing:
+            conn.execute(
+                "INSERT INTO products (name,price,category,icon,badge,rating,reviews,trending) VALUES(?,?,?,?,?,?,?,?)",
+                p
+            )
     conn.commit(); conn.close()
 
 # ═══════════════════════════════════════════════════════════

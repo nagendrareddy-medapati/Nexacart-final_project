@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "0SI6nvBZ5PIPsunOwtLff"
+uri = "file://products_list.xlsx"
+type = "table"
+title = "Nexacart Products List (ID + Name + Image Path)"
