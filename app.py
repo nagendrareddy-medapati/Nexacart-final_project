@@ -360,6 +360,22 @@ def init_db():
     conn.commit()
     conn.close()
 
+def seed_default_users():
+    """Seed default admin and customer accounts if no users exist."""
+    conn = get_db()
+    count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    if count == 0:
+        conn.execute(
+            "INSERT INTO users(username,password,email,phone,country_code,is_verified,role) VALUES(?,?,?,?,?,1,?)",
+            ("admin", generate_password_hash("Admin@1234"), "admin@nexacart.com", None, "+91", "admin")
+        )
+        conn.execute(
+            "INSERT INTO users(username,password,email,phone,country_code,is_verified,role) VALUES(?,?,?,?,?,1,?)",
+            ("customer", generate_password_hash("Customer@1234"), "customer@nexacart.com", None, "+91", "customer")
+        )
+        conn.commit()
+    conn.close()
+
 def get_user_id():
     if "user_id" in session: return session["user_id"]
     conn = get_db()
@@ -1756,7 +1772,6 @@ def admin_users():
 # SEARCH API (for live search suggestions)
 # ═══════════════════════════════════════════════════════════
 @app.route("/api/search")
-@login_required
 def api_search():
     q=request.args.get("q","").strip()
     if len(q)<2: return jsonify([])
@@ -2220,6 +2235,7 @@ with app.app_context():
     try:
         init_db()
         insert_sample_products()
+        seed_default_users()
     except Exception as e:
         print(f"DB initialization error: {e}")
 
