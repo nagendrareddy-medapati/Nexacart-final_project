@@ -1153,7 +1153,7 @@ def products():
     # Base query
     where=[]; params=[]
     if search_q:
-        where.append("(name LIKE ? OR category LIKE ?)")
+        where.append("(name ILIKE ? OR category ILIKE ?)")
         params+=[f"%{search_q}%",f"%{search_q}%"]
         active_cat="All"
     elif active_cat!="All":
@@ -1608,7 +1608,7 @@ def admin_dashboard():
 def admin_products():
     q=request.args.get("q",""); page=max(1,request.args.get("page",1,type=int))
     conn=get_db()
-    w="WHERE name LIKE ? OR category LIKE ?" if q else ""
+    w="WHERE name ILIKE ? OR category ILIKE ?" if q else ""
     params=[f"%{q}%",f"%{q}%"] if q else []
     total=conn.execute(f"SELECT COUNT(*) FROM products {w}",params).fetchone()[0]
     items=conn.execute(f"SELECT * FROM products {w} ORDER BY category,name LIMIT 30 OFFSET ?",[*params,(page-1)*30]).fetchall()
@@ -1761,7 +1761,7 @@ def api_search():
     q=request.args.get("q","").strip()
     if len(q)<2: return jsonify([])
     conn=get_db()
-    rows=conn.execute("SELECT id,name,category,price FROM products WHERE name LIKE ? LIMIT 8",(f"%{q}%",)).fetchall()
+    rows=conn.execute("SELECT id,name,category,price FROM products WHERE name ILIKE ? LIMIT 8",(f"%{q}%",)).fetchall()
     conn.close()
     return jsonify([{"id":r["id"],"name":r["name"],"category":r["category"],"price":r["price"]} for r in rows])
 
